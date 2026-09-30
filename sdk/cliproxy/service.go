@@ -94,7 +94,8 @@ type Service struct {
 	accessManager *sdkaccess.Manager
 
 	// coreManager handles core authentication and execution.
-	coreManager *coreauth.Manager
+	coreManager      *coreauth.Manager
+	releaseAuthStore coreauth.Store
 
 	// cooldownStateStore persists runtime cooldown state when enabled.
 	cooldownStateStore coreauth.CooldownStateStore

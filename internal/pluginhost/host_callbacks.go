@@ -145,6 +145,10 @@ func (h *Host) callFromPlugin(ctx context.Context, method string, request []byte
 		return nil, fmt.Errorf("host plugin callback instance is closed")
 	}
 	switch method {
+	case "host.mmc.execution.state":
+		return h.callOptimizationActivity(ctx, request, false)
+	case "host.mmc.execution.close":
+		return h.callOptimizationActivity(ctx, request, true)
 	case pluginabi.MethodHostModelExecute:
 		return h.callHostModelExecute(ctx, request)
 	case pluginabi.MethodHostModelExecuteStream:

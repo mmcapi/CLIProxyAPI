@@ -96,7 +96,7 @@ func (h *BaseAPIHandler) PrepareStreamModelRoute(ctx context.Context, handlerTyp
 	}
 	decision := h.applyModelRouter(ctx, handlerType, modelName, rawJSON, true, modelExecutionOptions{})
 	ctx = context.WithValue(ctx, preparedModelRouteContextKey{}, decision)
-	hasOverride := strings.TrimSpace(decision.ExecutorPluginID) != "" || strings.TrimSpace(decision.Provider) != ""
+	hasOverride := decision.Error != nil || strings.TrimSpace(decision.ExecutorPluginID) != "" || strings.TrimSpace(decision.Provider) != ""
 	return ctx, hasOverride
 }
 

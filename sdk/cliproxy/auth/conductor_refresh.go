@@ -528,6 +528,15 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 	if id == "" {
 		return nil, errors.New("auth id is empty")
 	}
+	gate := m.credentialGate()
+	if gate != nil {
+		admitted, release, err := AdmitCredentialMutation(ctx, gate)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		ctx = admitted
+	}
 
 	lockValue, _ := m.refreshLocks.LoadOrStore(id, &authRefreshLock{})
 	lock, _ := lockValue.(*authRefreshLock)

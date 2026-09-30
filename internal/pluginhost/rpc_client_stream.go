@@ -15,6 +15,7 @@ func (a *rpcPluginAdapter) ExecuteStream(ctx context.Context, req pluginapi.Exec
 	}
 	streamID, chunks, cleanupStream := a.host.streams.open(ctx)
 	callbackID, closeCallback := a.openHostCallbackContext(ctx)
+	a.reserveOptimization(ctx, callbackID)
 	cleanup := combinedCleanup(cleanupStream, closeCallback)
 	rpcReq := rpcExecutorRequest{
 		ExecutorRequest: req,

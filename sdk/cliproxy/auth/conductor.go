@@ -202,7 +202,9 @@ type Manager struct {
 	requestPrepareLocks sync.Map
 	// refreshLocks serializes credential refresh per auth ID so concurrent
 	// 401 recoveries and auto-refresh workers do not race the same refresh_token.
-	refreshLocks sync.Map
+	refreshLocks      sync.Map
+	refreshGate       atomic.Pointer[refreshGateHolder]
+	releaseExecutions atomic.Int64
 	// persistLocks serializes disk persistence per auth ID and guards against out-of-order writes.
 	persistLocks sync.Map
 }

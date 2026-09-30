@@ -114,6 +114,12 @@ func (s *Service) handleAuthUpdates(ctx context.Context, updates []watcher.AuthU
 	if s.authRevisions == nil {
 		s.authRevisions = make(map[string]uint64)
 	}
+	var errRelease error
+	updates, errRelease = s.authoritativeReleaseUpdates(ctx, updates)
+	if errRelease != nil {
+		log.WithError(errRelease).Warn("managed release auth update rejected")
+		return
+	}
 
 	filtered := make([]watcher.AuthUpdate, 0, len(updates))
 	skippedWaits := make([]chan struct{}, 0)

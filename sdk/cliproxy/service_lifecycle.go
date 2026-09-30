@@ -74,6 +74,10 @@ func (s *Service) Run(ctx context.Context) error {
 	s.configureCooldownStateStore(s.cfg)
 
 	s.registerPluginAuthParser()
+	releaseController, errRelease := s.prepareReleaseController(ctx)
+	if errRelease != nil {
+		return errRelease
+	}
 	if s.coreManager != nil && !homeEnabled {
 		if errLoad := s.coreManager.Load(ctx); errLoad != nil {
 			log.Warnf("failed to load auth store: %v", errLoad)
@@ -124,6 +128,7 @@ func (s *Service) Run(ctx context.Context) error {
 
 	// handlers no longer depend on legacy clients; pass nil slice initially
 	s.server = api.NewServer(s.cfg, s.coreManager, s.accessManager, s.configPath, s.serverOptions...)
+	s.server.SetReleaseController(releaseController)
 	s.syncPluginRuntimeConfig(ctx)
 	if homeEnabled {
 		s.syncPluginModelRuntime(ctx)

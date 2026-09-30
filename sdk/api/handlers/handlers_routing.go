@@ -14,6 +14,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/roombridge"
 	"golang.org/x/net/context"
 )
 
@@ -102,6 +103,9 @@ func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string
 }
 
 func validateNativeInteractionsExecution(entryProtocol string, execOptions modelExecutionOptions, routeDecision modelRouteDecision) *interfaces.ErrorMessage {
+	if routeDecision.Error != nil {
+		return routeDecision.Error
+	}
 	forcedProvider := strings.ToLower(strings.TrimSpace(execOptions.ForcedProvider))
 	if forcedProvider == "" || entryProtocol != Interactions {
 		return nil
@@ -126,6 +130,9 @@ func nativeInteractionsExecutionError() *interfaces.ErrorMessage {
 // router selected a built-in provider, it skips model->provider resolution and uses the router's
 // provider (with an optional target model); otherwise it falls back to the registry-based path.
 func (h *BaseAPIHandler) providersForExecution(modelName, originalRequestedModel string, allowImageModel bool, routeDecision modelRouteDecision, execOptions modelExecutionOptions) ([]string, string, *interfaces.ErrorMessage) {
+	if routeDecision.Error != nil {
+		return nil, "", routeDecision.Error
+	}
 	forcedProvider := strings.ToLower(strings.TrimSpace(execOptions.ForcedProvider))
 	if forcedProvider != "" {
 		if routeDecision.ExecutorPluginID != "" {
@@ -282,6 +289,7 @@ func (h *BaseAPIHandler) modelRouterHost() PluginModelRouterHost {
 }
 
 type modelRouteDecision struct {
+	Error            *interfaces.ErrorMessage
 	ExecutorPluginID string
 	Provider         string
 	Model            string
@@ -322,8 +330,16 @@ func modelRoutersEnabled(host PluginModelRouterHost, skipPluginID string) bool {
 	return false
 }
 
-func (h *BaseAPIHandler) applyModelRouter(ctx context.Context, handlerType, modelName string, rawJSON []byte, stream bool, execOptions modelExecutionOptions) modelRouteDecision {
-	var decision modelRouteDecision
+func (h *BaseAPIHandler) applyModelRouter(ctx context.Context, handlerType, modelName string, rawJSON []byte, stream bool, execOptions modelExecutionOptions) (decision modelRouteDecision) {
+	// A signed room decision is never permission to silently execute natively when
+	// the plugin is absent, disabled, fused, incompatible, or declines the route.
+	if roombridge.Present(modelExecutionHeaders(ctx, execOptions.Headers)) {
+		defer func() {
+			if decision.ExecutorPluginID == "" {
+				decision = modelRouteDecision{Error: &interfaces.ErrorMessage{StatusCode: http.StatusServiceUnavailable, Error: errors.New("optimization execution unavailable")}}
+			}
+		}()
+	}
 	host := h.modelRouterHost()
 	if host == nil || !modelRoutersEnabled(host, execOptions.SkipRouterPluginID) {
 		return decision

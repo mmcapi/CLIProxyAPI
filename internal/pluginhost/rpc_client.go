@@ -496,6 +496,7 @@ func (a *rpcPluginAdapter) Authenticate(ctx context.Context, req pluginapi.Front
 
 func (a *rpcPluginAdapter) Execute(ctx context.Context, req pluginapi.ExecutorRequest) (pluginapi.ExecutorResponse, error) {
 	callbackID, closeCallback := a.openHostCallbackContext(ctx)
+	a.reserveOptimization(ctx, callbackID)
 	defer closeCallback()
 	return callPlugin[pluginapi.ExecutorResponse](ctx, a.client, pluginabi.MethodExecutorExecute, rpcExecutorRequest{
 		ExecutorRequest: req,

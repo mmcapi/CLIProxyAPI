@@ -53,9 +53,24 @@ func currentPluginAuthParser() PluginAuthParser {
 
 // FileTokenStore persists token records and auth metadata using the filesystem as backing storage.
 type FileTokenStore struct {
-	mu      sync.Mutex
-	dirLock sync.RWMutex
-	baseDir string
+	mu        sync.Mutex
+	dirLock   sync.RWMutex
+	baseDir   string
+	writeGate cliproxyauth.RefreshGate
+}
+
+// SetCredentialWriteGate must be configured before the store serves requests.
+func (s *FileTokenStore) SetCredentialWriteGate(gate cliproxyauth.RefreshGate) {
+	s.dirLock.Lock()
+	s.writeGate = gate
+	s.dirLock.Unlock()
+}
+
+func (s *FileTokenStore) enterWrite(ctx context.Context) (context.Context, func(), error) {
+	s.dirLock.RLock()
+	gate := s.writeGate
+	s.dirLock.RUnlock()
+	return cliproxyauth.AdmitCredentialMutation(ctx, gate)
 }
 
 // NewFileTokenStore creates a token store that saves credentials to disk through the
@@ -73,6 +88,12 @@ func (s *FileTokenStore) SetBaseDir(dir string) {
 
 // Save persists token storage and metadata to the resolved auth file path.
 func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (string, error) {
+	admitted, release, errGate := s.enterWrite(ctx)
+	if errGate != nil {
+		return "", errGate
+	}
+	defer release()
+	ctx = admitted
 	if auth == nil {
 		return "", fmt.Errorf("auth filestore: auth is nil")
 	}
@@ -202,6 +223,11 @@ func (s *FileTokenStore) List(ctx context.Context) ([]*cliproxyauth.Auth, error)
 
 // Delete removes the auth file.
 func (s *FileTokenStore) Delete(ctx context.Context, id string) error {
+	_, release, errGate := s.enterWrite(ctx)
+	if errGate != nil {
+		return errGate
+	}
+	defer release()
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("auth filestore: id is empty")

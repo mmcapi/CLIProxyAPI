@@ -77,6 +77,11 @@ func (m *Manager) UnregisterExecutor(provider string) {
 
 // Register inserts a new auth entry into the manager.
 func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
+	if m.credentialGate() != nil {
+		if err := ValidateManagedCredential(auth); err != nil {
+			return nil, err
+		}
+	}
 	if auth == nil {
 		return nil, nil
 	}
@@ -158,6 +163,11 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
 }
 
 func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode updateAuthMode) (*Auth, error) {
+	if m.credentialGate() != nil {
+		if err := ValidateManagedCredential(auth); err != nil {
+			return nil, err
+		}
+	}
 	if auth == nil || auth.ID == "" {
 		return nil, nil
 	}
@@ -364,6 +374,14 @@ func (m *Manager) Load(ctx context.Context) error {
 		m.mu.Unlock()
 		return err
 	}
+	if m.credentialGate() != nil {
+		for _, item := range items {
+			if err := ValidateManagedCredential(item); err != nil {
+				m.mu.Unlock()
+				return err
+			}
+		}
+	}
 	previousAuths := m.auths
 	m.auths = make(map[string]*Auth, len(items))
 	if m.authEpochs == nil {
@@ -443,6 +461,16 @@ func (m *Manager) persist(ctx context.Context, auth *Auth) error {
 	// Skip persistence when metadata is absent (e.g., runtime-only auths).
 	if auth.Metadata == nil {
 		return nil
+	}
+	// Watcher updates must still advance the persistence watermark even though
+	// they perform no disk write and therefore need no ownership admission.
+	if !shouldSkipPersist(ctx) {
+		admitted, release, err := AdmitCredentialMutation(ctx, m.credentialGate())
+		if err != nil {
+			return err
+		}
+		defer release()
+		ctx = admitted
 	}
 
 	lockVal, _ := m.persistLocks.LoadOrStore(auth.ID, &authPersistLock{})
