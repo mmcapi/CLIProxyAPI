@@ -21,18 +21,19 @@ const KeyEnv = "MMC_OPTIMIZATION_BRIDGE_KEY"
 const MaxHeaderBytes = 8192
 
 type Claims struct {
-	Version          int    `json:"version"`
-	RoomID           string `json:"room_id"`
-	AccountID        string `json:"account_id"`
-	Prefix           string `json:"prefix"`
-	AuthIndex        string `json:"auth_index"`
-	Model            string `json:"model"`
-	Enabled          bool   `json:"enabled"`
-	AutoDisableOn403 bool   `json:"auto_disable_on_403"`
-	ExpiresAt        int64  `json:"expires_at"`
-	BodySHA256       string `json:"body_sha256"`
-	RequestID        string `json:"request_id"`
-	PolicyVersion    int64  `json:"policy_version"`
+	Version          int       `json:"version"`
+	RoomID           string    `json:"room_id"`
+	AccountID        string    `json:"account_id"`
+	Prefix           string    `json:"prefix"`
+	AuthIndex        string    `json:"auth_index"`
+	Model            string    `json:"model"`
+	Enabled          bool      `json:"enabled"`
+	AutoDisableOn403 bool      `json:"auto_disable_on_403"`
+	ExpiresAt        int64     `json:"expires_at"`
+	BodySHA256       string    `json:"body_sha256"`
+	RequestID        string    `json:"request_id"`
+	PolicyVersion    int64     `json:"policy_version"`
+	ProtectionModels *[]string `json:"protection_models,omitempty"`
 }
 
 var errInvalid = errors.New("invalid optimization execution proof")
@@ -124,6 +125,13 @@ func Verify(key []byte, headers http.Header, body []byte, now time.Time) (Claims
 	if dec.Decode(&claims) != nil {
 		return Claims{}, errInvalid
 	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) != nil {
+		return Claims{}, errInvalid
+	}
+	if _, present := fields["protection_models"]; claims.Version == 1 && present {
+		return Claims{}, errInvalid
+	}
 	var trailing any
 	if dec.Decode(&trailing) != io.EOF {
 		return Claims{}, errInvalid
@@ -135,7 +143,13 @@ func Verify(key []byte, headers http.Header, body []byte, now time.Time) (Claims
 }
 
 func validate(c Claims, body []byte, now time.Time) error {
-	if c.Version != 1 || c.PolicyVersion < 1 || c.ExpiresAt <= now.Unix() || c.ExpiresAt > now.Unix()+60 {
+	if (c.Version != 1 && c.Version != 2) || c.PolicyVersion < 1 || c.ExpiresAt <= now.Unix() || c.ExpiresAt > now.Unix()+60 {
+		return errInvalid
+	}
+	if c.Version == 1 && c.ProtectionModels != nil {
+		return errInvalid
+	}
+	if c.Version == 2 && (c.ProtectionModels == nil || !ValidProtectionModels(*c.ProtectionModels)) {
 		return errInvalid
 	}
 	for _, v := range []string{c.RoomID, c.AccountID, c.Prefix, c.AuthIndex, c.Model, c.RequestID} {
@@ -160,4 +174,19 @@ func validate(c Claims, body []byte, now time.Time) error {
 		return errInvalid
 	}
 	return nil
+}
+
+// ValidProtectionModels requires an explicit array containing supported, unique models.
+func ValidProtectionModels(models []string) bool {
+	if models == nil {
+		return false
+	}
+	seen := make(map[string]bool, len(models))
+	for _, model := range models {
+		if (model != "gpt-6-astra" && model != "gpt-5.6-sol") || seen[model] {
+			return false
+		}
+		seen[model] = true
+	}
+	return true
 }

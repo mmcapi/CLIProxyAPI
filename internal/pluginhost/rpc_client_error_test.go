@@ -4,11 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"testing"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 )
+
+func TestProtectedErrorModelsSurviveHTTPBoundary(t *testing.T) {
+	for _, models := range [][]string{{}, {"gpt-5.6-sol"}, {"gpt-6-astra", "gpt-5.6-sol"}} {
+		raw, _ := json.Marshal(pluginabi.Envelope{Error: &pluginabi.Error{Code: "bps_protected", Message: "mmc_optimization_protected", HTTPStatus: 403, ProtectionModels: &models}})
+		_, err := decodeRPCEnvelope[rpcEmptyResponse](raw)
+		if err == nil {
+			t.Fatal("missing error")
+		}
+		body := handlers.BuildErrorResponseBodyWithError(403, err.Error(), err)
+		var got struct {
+			Error struct {
+				Code   string   `json:"code"`
+				Models []string `json:"protection_models"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(body, &got) != nil || got.Error.Code != "bps_protected" || !reflect.DeepEqual(got.Error.Models, models) {
+			t.Fatalf("metadata lost: %s", body)
+		}
+	}
+	for _, models := range [][]string{{"unknown"}, {"gpt-6-astra", "gpt-6-astra"}, nil} {
+		_, err := decodeEnvelopeResult[rpcEmptyResponse](pluginabi.Envelope{Error: &pluginabi.Error{Code: "bps_protected", Message: "mmc_optimization_protected", HTTPStatus: 403, ProtectionModels: &models}})
+		if err == nil || err.(interface{ StatusCode() int }).StatusCode() != 503 {
+			t.Fatalf("invalid metadata accepted: %v", err)
+		}
+	}
+}
 
 type staticEnvelopePluginClient struct {
 	raw []byte

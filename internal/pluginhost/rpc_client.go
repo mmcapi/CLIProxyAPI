@@ -11,6 +11,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/roombridge"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -44,12 +45,17 @@ type rpcQuotaProvider struct {
 }
 
 type rpcError struct {
-	Code       string
-	message    string
-	statusCode int
+	Code             string
+	message          string
+	statusCode       int
+	protectionModels *[]string
 }
 
 func (e rpcError) Error() string {
+	if e.Code == "bps_protected" && e.protectionModels != nil {
+		body, _ := json.Marshal(map[string]any{"error": map[string]any{"code": e.Code, "message": e.message, "protection_models": *e.protectionModels}})
+		return string(body)
+	}
 	return e.message
 }
 
@@ -361,14 +367,18 @@ func decodeEnvelopeResult[T any](envelope pluginabi.Envelope) (T, error) {
 	var zero T
 	if !envelope.OK {
 		if envelope.Error != nil {
+			if envelope.Error.ProtectionModels != nil && (envelope.Error.Code != "bps_protected" || envelope.Error.HTTPStatus != 403 || !roombridge.ValidProtectionModels(*envelope.Error.ProtectionModels)) {
+				return zero, rpcError{Code: "invalid_protection_metadata", message: "invalid optimization protection metadata", statusCode: 503}
+			}
 			message := strings.TrimSpace(envelope.Error.Message)
 			if message == "" {
 				message = "plugin call failed"
 			}
 			return zero, rpcError{
-				Code:       strings.TrimSpace(envelope.Error.Code),
-				message:    message,
-				statusCode: envelope.Error.HTTPStatus,
+				Code:             strings.TrimSpace(envelope.Error.Code),
+				message:          message,
+				statusCode:       envelope.Error.HTTPStatus,
+				protectionModels: envelope.Error.ProtectionModels,
 			}
 		}
 		return zero, fmt.Errorf("plugin call failed")
