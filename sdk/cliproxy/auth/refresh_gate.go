@@ -13,6 +13,16 @@ func ValidateManagedCredential(auth *Auth) error {
 		return nil
 	}
 	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
+	// Legacy type=free files are retained for management visibility only. They
+	// are not Codex accounts and must never acquire compatibility routing.
+	if provider == "free" && auth.AuthSourceKind() == AuthSourceFile && auth.Runtime == nil {
+		for _, key := range []string{"base_url", "api_key", "compat_name", "provider_key"} {
+			if strings.TrimSpace(auth.Attributes[key]) != "" {
+				return fmt.Errorf("managed releases require inert free file credentials")
+			}
+		}
+		return nil
+	}
 	if provider != "codex" && provider != "bps" {
 		return fmt.Errorf("managed releases do not support credential provider %q", provider)
 	}

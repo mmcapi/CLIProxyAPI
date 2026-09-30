@@ -73,3 +73,35 @@ func TestReleaseUnsupportedRotatingProviderRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseFreeCompatibilityMappingRejected(t *testing.T) {
+	service := &Service{cfg: &config.Config{}, releaseAuthStore: &releaseFixtureStore{}}
+	bad := &config.Config{OpenAICompatibility: []config.OpenAICompatibility{{Name: " FREE "}}}
+	if service.validateReleaseFreeProvider(bad) == nil {
+		t.Fatal("accepted reserved provider config")
+	}
+	if service.commitConfigUpdate(bad).cfg != nil {
+		t.Fatal("hot config bypassed reserved provider validation")
+	}
+	good := &config.Config{OpenAICompatibility: []config.OpenAICompatibility{{Name: "fixture"}}}
+	if service.validateReleaseFreeProvider(good) != nil {
+		t.Fatal("unrelated compatibility configuration rejected")
+	}
+}
+
+func TestReleaseReloadPreservesFreeFileVisibilityWithoutModels(t *testing.T) {
+	a := &coreauth.Auth{ID: "free.json", Provider: "free", Attributes: map[string]string{coreauth.AttributeSourceBackend: coreauth.AuthSourceFile}, Metadata: map[string]any{"type": "free", "refresh_token": "fixture"}}
+	store := &releaseFixtureStore{items: []*coreauth.Auth{a}}
+	manager := coreauth.NewManager(store, nil, nil)
+	service := &Service{coreManager: manager, cfg: &config.Config{}, releaseAuthStore: store}
+	if err := service.reloadReleaseCredentials(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(manager.List()) != 1 || manager.List()[0].Provider != "free" {
+		t.Fatal("legacy free record removed or converted")
+	}
+	service.registerModelsForAuth(context.Background(), a)
+	if len(GlobalModelRegistry().GetModelsForClient(a.ID)) != 0 {
+		t.Fatal("legacy free record gained models")
+	}
+}

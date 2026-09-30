@@ -9,6 +9,15 @@ providers fail startup/registration rather than bypass ownership through a
 provider-specific credential mint path. Nonrotating configured API keys remain
 supported.
 
+Legacy file records whose exact provider is `free` are retained unchanged and
+remain visible to management, but are not Codex free-plan accounts. In managed
+mode these records have no models and no usable inference/refresh executor.
+They must be file-backed, have no runtime or routing attributes (`base_url`,
+`api_key`, `compat_name`, `provider_key`), and must not have an active named
+OpenAI-compatibility configuration or loaded plugin provider mapping for `free`.
+Startup, activation and configuration updates reject conflicting mappings.
+This preserves existing inert records; it does not enable or convert them.
+
 The integrated service creates an inactive owner before starting refresh workers,
 gates Manager persistence and FileTokenStore Save/Delete, and wraps the HTTP
 server. Control routes are mounted under `/__mmc_release/`:

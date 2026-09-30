@@ -1566,6 +1566,10 @@ func canonicalSchedulingProvider(key string) string {
 }
 
 func (m *Manager) executorLocked(provider string) (ProviderExecutor, bool) {
+	// Reserved legacy file records remain visible but cannot execute or refresh.
+	if m.credentialGate() != nil && strings.EqualFold(strings.TrimSpace(provider), "free") {
+		return nil, false
+	}
 	provider = strings.TrimSpace(provider)
 	if provider == "" {
 		return nil, false

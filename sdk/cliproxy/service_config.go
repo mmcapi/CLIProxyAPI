@@ -113,6 +113,12 @@ func (s *Service) commitConfigUpdate(newCfg *config.Config) configCommit {
 		log.WithError(errValidate).Warn("rejected config update with invalid credential weights")
 		return configCommit{}
 	}
+	if s.releaseAuthStore != nil {
+		if errValidate := s.validateReleaseFreeProvider(newCfg); errValidate != nil {
+			log.WithError(errValidate).Warn("rejected managed release provider config")
+			return configCommit{}
+		}
+	}
 
 	s.cfgMu.Lock()
 	s.cfg = newCfg

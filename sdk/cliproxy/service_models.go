@@ -22,6 +22,10 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
 	if a == nil || a.ID == "" {
 		return
 	}
+	if s.releaseAuthStore != nil && strings.EqualFold(strings.TrimSpace(a.Provider), "free") {
+		GlobalModelRegistry().UnregisterClient(a.ID)
+		return
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

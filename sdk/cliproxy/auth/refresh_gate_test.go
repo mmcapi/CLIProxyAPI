@@ -6,6 +6,46 @@ import (
 	"testing"
 )
 
+func TestManagedReleasePreservesInertFreeFiles(t *testing.T) {
+	a := &Auth{Provider: "free", Metadata: map[string]any{"type": "free", "refresh_token": "fixture"}, Attributes: map[string]string{AttributeSourceBackend: AuthSourceFile}}
+	if err := ValidateManagedCredential(a); err != nil {
+		t.Fatalf("inert legacy file rejected: %v", err)
+	}
+	for _, key := range []string{"base_url", "api_key", "compat_name", "provider_key"} {
+		candidate := a.Clone()
+		candidate.Attributes[key] = "configured"
+		if ValidateManagedCredential(candidate) == nil {
+			t.Fatalf("accepted routed free attribute %s", key)
+		}
+	}
+	if ValidateManagedCredential(&Auth{Provider: "free"}) == nil {
+		t.Fatal("accepted non-file free credential")
+	}
+}
+
+func TestManagedReleaseFreeCannotExecuteOrRefresh(t *testing.T) {
+	m := NewManager(nil, nil, nil)
+	exec := &countingRefreshExecutor{id: "free"}
+	m.RegisterExecutor(exec)
+	if _, ok := m.Executor("free"); !ok {
+		t.Fatal("standalone behavior changed")
+	}
+	m.SetRefreshGate(&observedRefreshGate{})
+	a := &Auth{ID: "free.json", Provider: "free", Attributes: map[string]string{AttributeSourceBackend: AuthSourceFile}}
+	if _, err := m.Register(WithSkipPersist(context.Background()), a); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Executor("free"); ok {
+		t.Fatal("inert provider executor remained available")
+	}
+	if _, err := m.ForceRefreshAuth(context.Background(), a.ID); err == nil {
+		t.Fatal("inert provider refresh succeeded")
+	}
+	if len(m.List()) != 1 {
+		t.Fatal("inert record disappeared from management")
+	}
+}
+
 type observedRefreshGate struct {
 	entered, released bool
 	reject            bool
