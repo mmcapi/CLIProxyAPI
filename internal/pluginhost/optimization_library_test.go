@@ -87,9 +87,14 @@ func TestOptimizationLibraryRoundTrip(t *testing.T) {
 	if _, err = manager.Register(context.Background(), auth); err != nil {
 		t.Fatal(err)
 	}
-	invoke := func(room string, stream bool) (coreexecutor.Response, error) {
+	invoke := func(room string, stream bool, modelChoices ...[]string) (coreexecutor.Response, error) {
 		body := []byte(fmt.Sprintf(`{"model":"fixture-source/gpt-6-astra","messages":[{"role":"user","content":"fixture hello"}],"stream":%t}`, stream))
-		headers, err := roombridge.Sign([]byte(key), roombridge.Claims{Version: 1, RoomID: room, AccountID: "fixture-account", Prefix: auth.Prefix, AuthIndex: auth.Index, Model: "gpt-6-astra", Enabled: true, AutoDisableOn403: true, RequestID: fmt.Sprint(time.Now().UnixNano()), PolicyVersion: 1}, body, time.Now())
+		claims := roombridge.Claims{Version: 1, RoomID: room, AccountID: "fixture-account", Prefix: auth.Prefix, AuthIndex: auth.Index, Model: "gpt-6-astra", Enabled: true, AutoDisableOn403: true, RequestID: fmt.Sprint(time.Now().UnixNano()), PolicyVersion: 1}
+		if len(modelChoices) > 0 {
+			claims.Version = 2
+			claims.ProtectionModels = &modelChoices[0]
+		}
+		headers, err := roombridge.Sign([]byte(key), claims, body, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -139,14 +144,28 @@ func TestOptimizationLibraryRoundTrip(t *testing.T) {
 	forbidden.Store(true)
 	_, err = invoke("room-a", true)
 	var status interface{ StatusCode() int }
-	if !errors.As(err, &status) || status.StatusCode() != 403 || err.Error() != "mmc_optimization_protected" {
+	if !errors.As(err, &status) || status.StatusCode() != 403 || !strings.Contains(err.Error(), `"protection_models":["gpt-6-astra"]`) {
 		t.Fatalf("stream protection status lost: %v", err)
 	}
 	before := calls.Load()
 	_, err = invoke("room-a", false)
-	if err == nil || err.Error() != "mmc_optimization_protected" || calls.Load() != before {
+	if err == nil || !strings.Contains(err.Error(), `"protection_models":["gpt-6-astra"]`) || calls.Load() != before {
 		t.Fatal("protected room reached upstream")
 	}
+	for _, models := range [][]string{{}, {"gpt-5.6-sol"}, {"gpt-6-astra", "gpt-5.6-sol"}} {
+		encoded, _ := json.Marshal(models)
+		room := "v2-" + string(encoded)
+		_, err = invoke(room, true, models)
+		if !errors.As(err, &status) || status.StatusCode() != 403 || !strings.Contains(err.Error(), `"protection_models":`+string(encoded)) {
+			t.Fatalf("v2 ABI protection choices lost: %v", err)
+		}
+		prior := calls.Load()
+		_, err = invoke(room, false, []string{"gpt-6-astra"})
+		if err == nil || !strings.Contains(err.Error(), `"protection_models":`+string(encoded)) || calls.Load() != prior {
+			t.Fatalf("v2 ABI changed first protection: %v", err)
+		}
+	}
+	before = calls.Load()
 	forbidden.Store(false)
 	response, err = invoke("room-b", false)
 	if err != nil || !strings.Contains(string(response.Payload), "fixture success") || calls.Load() != before+1 {
